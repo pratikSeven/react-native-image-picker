@@ -170,6 +170,14 @@ NSData* extractImageData(UIImage* image){
                                     maxHeight:[self.options[@"maxHeight"] floatValue]];
     }
 
+    NSMutableDictionary *asset = [[NSMutableDictionary alloc] init];
+    NSDictionary *exifData = getExifDataFromImage(data);
+    if (exifData) {
+        asset[@"exif"] = exifData;
+    } else {
+        asset[@"exif"] = @{};
+    }
+
     float quality = [self.options[@"quality"] floatValue];
     if (![image isEqual:newImage] || (quality >= 0 && quality < 1)) {
         if ([fileType isEqualToString:@"jpg"]) {
@@ -179,7 +187,6 @@ NSData* extractImageData(UIImage* image){
         }
     }
 
-    NSMutableDictionary *asset = [[NSMutableDictionary alloc] init];
     asset[@"type"] = [@"image/" stringByAppendingString:fileType];
 
     NSString *fileName = [self getImageFileName:fileType];
@@ -211,6 +218,23 @@ NSData* extractImageData(UIImage* image){
     }
 
     return asset;
+}
+
+NSDictionary *getExifDataFromImage(NSData *data) {
+    CGImageSourceRef imageSource = CGImageSourceCreateWithData((CFDataRef)data, NULL);
+    if (!imageSource) {
+        return nil;
+    }
+
+    NSDictionary *exifDictionary = (NSDictionary *) CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(imageSource, 0, NULL));
+    if (!exifDictionary) {
+        CFRelease(imageSource);
+        return nil;
+    }
+
+    CFRelease(imageSource);
+
+    return exifDictionary;
 }
 
 CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIImageOrientation uiOrientation) {
