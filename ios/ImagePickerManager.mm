@@ -2,6 +2,7 @@
 #import "ImagePickerUtils.h"
 #import <React/RCTConvert.h>
 #import <AVFoundation/AVFoundation.h>
+#import <ImageIO/ImageIO.h>
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
 #import <MobileCoreServices/MobileCoreServices.h>
@@ -214,10 +215,40 @@ NSData* extractImageData(UIImage* image){
     if(phAsset){
         asset[@"timestamp"] = [self getDateTimeInUTC:phAsset.creationDate];
         asset[@"id"] = phAsset.localIdentifier;
-        // Add more extra data here ...
+    } else {
+        NSString *timestamp = [self timestampFromExifDictionary:exifData];
+        if (timestamp) {
+            asset[@"timestamp"] = timestamp;
+        } else {
+            NSURL *writtenFileURL = [NSURL fileURLWithPath:path];
+            NSDate *modDate = nil;
+            [writtenFileURL getResourceValue:&modDate forKey:NSURLContentModificationDateKey error:nil];
+            if (modDate) {
+                asset[@"timestamp"] = [self getDateTimeInUTC:modDate];
+            }
+        }
     }
 
     return asset;
+}
+
+- (NSString *)timestampFromExifDictionary:(NSDictionary *)properties {
+    if (!properties || properties.count == 0) return nil;
+    NSString *dateString = nil;
+    NSDictionary *exifDict = properties[(__bridge NSString *)kCGImagePropertyExifDictionary];
+    if (exifDict) {
+        dateString = exifDict[(__bridge NSString *)kCGImagePropertyExifDateTimeOriginal];
+        if (!dateString.length) dateString = exifDict[(__bridge NSString *)kCGImagePropertyExifDateTimeDigitized];
+    }
+    if (!dateString.length) {
+        NSDictionary *tiffDict = properties[(__bridge NSString *)kCGImagePropertyTIFFDictionary];
+        if (tiffDict) dateString = tiffDict[(__bridge NSString *)kCGImagePropertyTIFFDateTime];
+    }
+    if (!dateString.length) return nil;
+    NSDateFormatter *parser = [[NSDateFormatter alloc] init];
+    [parser setDateFormat:@"yyyy:MM:dd HH:mm:ss"];
+    NSDate *date = [parser dateFromString:dateString];
+    return date ? [self getDateTimeInUTC:date] : nil;
 }
 
 NSDictionary *getExifDataFromImage(NSData *data) {
@@ -312,6 +343,10 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
                 response[@"fileSize"] = [ImagePickerUtils getFileSizeFromUrl:outputURL];
                 response[@"width"] = @(dimentions.width);
                 response[@"height"] = @(dimentions.height);
+                if (!phAsset) {
+                    NSString *timestamp = [self timestampFromVideoURL:outputURL];
+                    if (timestamp) response[@"timestamp"] = timestamp;
+                }
 
                 dispatch_semaphore_signal(sem);
             } else if (exportSession.status == AVAssetExportSessionStatusFailed || exportSession.status == AVAssetExportSessionStatusCancelled) {
@@ -334,11 +369,27 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
         if(phAsset){
             response[@"timestamp"] = [self getDateTimeInUTC:phAsset.creationDate];
             response[@"id"] = phAsset.localIdentifier;
-            // Add more extra data here ...
+        } else {
+            NSString *timestamp = [self timestampFromVideoURL:videoDestinationURL];
+            if (timestamp) {
+                response[@"timestamp"] = timestamp;
+            }
         }
     }
 
     return response;
+}
+
+- (NSString *)timestampFromVideoURL:(NSURL *)url {
+    if (!url) return nil;
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
+    for (AVMetadataItem *item in asset.commonMetadata) {
+        if ([item.commonKey isEqual:AVMetadataCommonKeyCreationDate]) {
+            NSDate *date = item.dateValue;
+            if (date) return [self getDateTimeInUTC:date];
+        }
+    }
+    return nil;
 }
 
 - (NSString *) getDateTimeInUTC:(NSDate *)date {
