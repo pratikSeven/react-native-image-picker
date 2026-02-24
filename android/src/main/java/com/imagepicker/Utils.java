@@ -12,6 +12,7 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.hardware.camera2.CameraCharacteristics;
+import android.content.ContentUris;
 import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -471,6 +472,31 @@ public class Utils {
     }
 
     private static String getFileNameForContent(Uri uri, Context context) {
+        // On Android 13+ the Photo Picker returns synthetic URIs whose DISPLAY_NAME
+        // is just the numeric media ID (e.g. "1000000050"). Resolve the real filename
+        // by querying MediaStore directly with that ID.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && uri.toString().contains("com.android.providers.media.photopicker")) {
+            try {
+                long mediaId = Long.parseLong(uri.getLastPathSegment());
+                Uri[] candidates = {
+                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediaId),
+                    ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId),
+                };
+                for (Uri candidate : candidates) {
+                    try (Cursor c = context.getContentResolver().query(
+                            candidate,
+                            new String[]{MediaStore.MediaColumns.DISPLAY_NAME},
+                            null, null, null)) {
+                        if (c != null && c.moveToFirst()) {
+                            String name = c.getString(0);
+                            if (name != null && !name.isEmpty()) return name;
+                        }
+                    } catch (Exception ignored) {}
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+
         ContentResolver contentResolver = context.getContentResolver();
         Cursor cursor = contentResolver.query(uri, null, null, null, null);
 

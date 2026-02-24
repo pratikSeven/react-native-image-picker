@@ -190,7 +190,7 @@ NSData* extractImageData(UIImage* image){
 
     asset[@"type"] = [@"image/" stringByAppendingString:fileType];
 
-    NSString *fileName = [self getImageFileName:fileType];
+    NSString *fileName = [self getImageFileNameFrom:phAsset ForType:fileType];
     NSString *path = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:fileName];
     [data writeToFile:path atomically:YES];
 
@@ -484,8 +484,18 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
     }
 }
 
-- (NSString *)getImageFileName:(NSString *)fileType
+- (NSString *)getImageFileNameFrom:(PHAsset * _Nullable)phAsset ForType:(NSString *)fileType
 {
+    if (phAsset) {
+        NSArray<PHAssetResource *> *resources = [PHAssetResource assetResourcesForAsset:phAsset];
+        if (resources.count > 0) {
+            NSString *name = resources.firstObject.originalFilename;
+            if ([name hasSuffix:@"HEIC"]) {
+                name = [name stringByReplacingOccurrencesOfString:@"HEIC" withString:fileType];
+            }
+            return name;
+        }
+    }
     NSString *fileName = [[NSUUID UUID] UUIDString];
     fileName = [fileName stringByAppendingString:@"."];
     return [fileName stringByAppendingString:fileType];
