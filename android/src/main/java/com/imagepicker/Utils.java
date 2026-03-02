@@ -472,10 +472,11 @@ public class Utils {
     }
 
     private static String getFileNameForContent(Uri uri, Context context) {
-        // The Photo Picker (native API 33+ and backported via androidx on API 30-32) returns
-        // synthetic URIs whose DISPLAY_NAME is just the numeric media ID (e.g. "1000000050").
-        // Resolve the real filename by querying MediaStore directly with that ID.
-        if (uri.toString().contains("com.android.providers.media.photopicker")) {
+        // On Android 13+ the Photo Picker returns synthetic URIs whose DISPLAY_NAME
+        // is just the numeric media ID (e.g. "1000000050"). Resolve the real filename
+        // by querying MediaStore directly with that ID.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && uri.toString().contains("com.android.providers.media.photopicker")) {
             try {
                 long mediaId = Long.parseLong(uri.getLastPathSegment());
                 Uri[] candidates = {
@@ -503,15 +504,7 @@ public class Utils {
         try {
             if (cursor.moveToFirst()) {
                 int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (nameIndex >= 0) {
-                    String name = cursor.getString(nameIndex);
-                    // Only accept the DISPLAY_NAME if it looks like a real filename.
-                    // Photo Picker URIs can return a bare numeric media ID here when the
-                    // MediaStore lookup above fails (e.g. cloud-only photos).
-                    if (name != null && !name.isEmpty() && name.contains(".")) {
-                        fileName = name;
-                    }
-                }
+                fileName = cursor.getString(nameIndex);
             }
         } finally {
             cursor.close();
