@@ -155,7 +155,7 @@ NSData* extractImageData(UIImage* image){
 
 
 
--(NSMutableDictionary *)mapImageToAsset:(UIImage *)image data:(NSData *)data phAsset:(PHAsset * _Nullable)phAsset {
+-(NSMutableDictionary *)mapImageToAsset:(UIImage *)image data:(NSData *)data phAsset:(PHAsset * _Nullable)phAsset suggestedName:(NSString * _Nullable)suggestedName {
     NSString *fileType = [ImagePickerUtils getFileType:data];
     if (target == camera) {
         if ([self.options[@"saveToPhotos"] boolValue]) {
@@ -190,7 +190,7 @@ NSData* extractImageData(UIImage* image){
 
     asset[@"type"] = [@"image/" stringByAppendingString:fileType];
 
-    NSString *fileName = [self getImageFileNameFrom:phAsset ForType:fileType];
+    NSString *fileName = [self getImageFileNameFrom:phAsset ForType:fileType suggestedName:suggestedName];
     NSString *path = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:fileName];
     [data writeToFile:path atomically:YES];
 
@@ -283,7 +283,27 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
 }
 
 -(NSMutableDictionary *)mapVideoToAsset:(NSURL *)url phAsset:(PHAsset * _Nullable)phAsset error:(NSError **)error {
-    NSString *fileName = [url lastPathComponent];
+    // Resolve original filename from PHAsset resources; temp URL name is a system-generated UUID
+    NSString *fileName = nil;
+    if (phAsset) {
+        NSArray<PHAssetResource *> *resources = [PHAssetResource assetResourcesForAsset:phAsset];
+        NSArray<NSNumber *> *preferredTypes = @[
+            @(PHAssetResourceTypeVideo),
+            @(PHAssetResourceTypeFullSizeVideo),
+            @(PHAssetResourceTypePairedVideo)
+        ];
+        for (NSNumber *typeNum in preferredTypes) {
+            PHAssetResourceType preferredType = (PHAssetResourceType)[typeNum integerValue];
+            for (PHAssetResource *resource in resources) {
+                if (resource.type == preferredType) {
+                    fileName = resource.originalFilename;
+                    break;
+                }
+            }
+            if (fileName) break;
+        }
+    }
+    if (!fileName) fileName = [url lastPathComponent];
     NSString *path = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:fileName];
     NSURL *videoDestinationURL = [NSURL fileURLWithPath:path];
     NSString *fileExtension = [fileName pathExtension];
@@ -484,21 +504,28 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
     }
 }
 
-- (NSString *)getImageFileNameFrom:(PHAsset * _Nullable)phAsset ForType:(NSString *)fileType
+- (NSString *)getImageFileNameFrom:(PHAsset * _Nullable)phAsset ForType:(NSString *)fileType suggestedName:(NSString * _Nullable)suggestedName
 {
     if (phAsset) {
         NSArray<PHAssetResource *> *resources = [PHAssetResource assetResourcesForAsset:phAsset];
-        if (resources.count > 0) {
-            NSString *name = resources.firstObject.originalFilename;
-            if ([name hasSuffix:@"HEIC"]) {
-                name = [name stringByReplacingOccurrencesOfString:@"HEIC" withString:fileType];
+        PHAssetResource *photoResource = nil;
+        for (PHAssetResource *resource in resources) {
+            if (resource.type == PHAssetResourceTypePhoto) {
+                photoResource = resource;
+                break;
             }
-            return name;
+        }
+        if (!photoResource) photoResource = resources.firstObject;
+        if (photoResource) {
+            NSString *base = [photoResource.originalFilename stringByDeletingPathExtension];
+            return [base stringByAppendingPathExtension:fileType];
         }
     }
-    NSString *fileName = [[NSUUID UUID] UUIDString];
-    fileName = [fileName stringByAppendingString:@"."];
-    return [fileName stringByAppendingString:fileType];
+    // Fallback: use suggestedName from NSItemProvider when PHAsset is unavailable (limited access)
+    if (suggestedName && suggestedName.length > 0) {
+        return [suggestedName stringByAppendingPathExtension:fileType];
+    }
+    return [[[NSUUID UUID] UUIDString] stringByAppendingPathExtension:fileType];
 }
 
 + (UIImage *)getUIImageFromInfo:(NSDictionary *)info
@@ -542,7 +569,7 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
         if ([info[UIImagePickerControllerMediaType] isEqualToString:(NSString *) kUTTypeImage]) {
             UIImage *image = [ImagePickerManager getUIImageFromInfo:info];
 
-            [assets addObject:[self mapImageToAsset:image data:[NSData dataWithContentsOfURL:[ImagePickerManager getNSURLFromInfo:info]] phAsset:asset]];
+            [assets addObject:[self mapImageToAsset:image data:[NSData dataWithContentsOfURL:[ImagePickerManager getNSURLFromInfo:info]] phAsset:asset suggestedName:nil]];
         } else {
             NSError *error;
             NSDictionary *videoAsset = [self mapVideoToAsset:info[UIImagePickerControllerMediaURL] phAsset:asset error:&error];
@@ -614,6 +641,9 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
     [results enumerateObjectsUsingBlock:^(PHPickerResult *result, NSUInteger index, BOOL *stop) {
         PHAsset *asset = nil;
         NSItemProvider *provider = result.itemProvider;
+        // suggestedName is the original filename (without extension) from NSItemProvider.
+        // Used as fallback when PHAsset fetch returns nil (e.g. Limited photo library access).
+        NSString *suggestedName = provider.suggestedName;
 
         // If include extra, we fetch the PHAsset, this required library permissions
         if([self.options[@"includeExtra"] boolValue] && result.assetIdentifier != nil) {
@@ -635,7 +665,7 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
                 NSData *data = [[NSData alloc] initWithContentsOfURL:url];
                 UIImage *image = [[UIImage alloc] initWithData:data];
 
-                assets[index] = [self mapImageToAsset:image data:data phAsset:asset];
+                assets[index] = [self mapImageToAsset:image data:data phAsset:asset suggestedName:suggestedName];
                 dispatch_group_leave(completionGroup);
             }];
         } else if ([provider hasItemConformingToTypeIdentifier:(NSString *)kUTTypeMovie]) {
