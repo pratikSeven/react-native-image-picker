@@ -283,7 +283,10 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
 }
 
 -(NSMutableDictionary *)mapVideoToAsset:(NSURL *)url phAsset:(PHAsset * _Nullable)phAsset error:(NSError **)error {
-    NSString *fileName = [url lastPathComponent];
+    // Use the PHAsset's original video resource name when available; the URL
+    // from loadFileRepresentationForTypeIdentifier is a system temp file with
+    // a non-meaningful name.
+    NSString *fileName = [self getVideoFileNameFrom:phAsset fallback:[url lastPathComponent]];
     NSString *path = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:fileName];
     NSURL *videoDestinationURL = [NSURL fileURLWithPath:path];
     NSString *fileExtension = [fileName pathExtension];
@@ -484,21 +487,44 @@ CGImagePropertyOrientation CGImagePropertyOrientationForUIImageOrientation(UIIma
     }
 }
 
+- (NSString *)getVideoFileNameFrom:(PHAsset * _Nullable)phAsset fallback:(NSString *)fallback
+{
+    if (phAsset) {
+        NSArray<PHAssetResource *> *resources = [PHAssetResource assetResourcesForAsset:phAsset];
+        for (PHAssetResource *resource in resources) {
+            if (resource.type == PHAssetResourceTypeVideo ||
+                resource.type == PHAssetResourceTypePairedVideo) {
+                return resource.originalFilename;
+            }
+        }
+    }
+    return fallback;
+}
+
 - (NSString *)getImageFileNameFrom:(PHAsset * _Nullable)phAsset ForType:(NSString *)fileType
 {
     if (phAsset) {
         NSArray<PHAssetResource *> *resources = [PHAssetResource assetResourcesForAsset:phAsset];
-        if (resources.count > 0) {
-            NSString *name = resources.firstObject.originalFilename;
-            if ([name hasSuffix:@"HEIC"]) {
-                name = [name stringByReplacingOccurrencesOfString:@"HEIC" withString:fileType];
+        // Explicitly find the primary photo resource — firstObject is unreliable for
+        // Live Photos and edited assets which carry multiple resource types.
+        PHAssetResource *primaryResource = nil;
+        for (PHAssetResource *resource in resources) {
+            if (resource.type == PHAssetResourceTypePhoto) {
+                primaryResource = resource;
+                break;
             }
-            return name;
+        }
+        if (!primaryResource) {
+            primaryResource = resources.firstObject;
+        }
+        if (primaryResource) {
+            // Replace the original extension with the actual exported type so the
+            // returned name always matches the file that was written to disk.
+            NSString *nameWithoutExt = [primaryResource.originalFilename stringByDeletingPathExtension];
+            return [nameWithoutExt stringByAppendingPathExtension:fileType];
         }
     }
-    NSString *fileName = [[NSUUID UUID] UUIDString];
-    fileName = [fileName stringByAppendingString:@"."];
-    return [fileName stringByAppendingString:fileType];
+    return [[[NSUUID UUID] UUIDString] stringByAppendingPathExtension:fileType];
 }
 
 + (UIImage *)getUIImageFromInfo:(NSDictionary *)info
