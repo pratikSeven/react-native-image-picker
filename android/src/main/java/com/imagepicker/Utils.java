@@ -19,6 +19,7 @@ import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Base64;
+import android.util.Log;
 import android.webkit.MimeTypeMap;
 
 import androidx.annotation.Nullable;
@@ -600,10 +601,14 @@ public class Utils {
                 appSpecificUrl = resizeOrConvertImage(appSpecificUrl, context, options);
                 assets.pushMap(getImageResponseMap(uri, appSpecificUrl, options, context));
             } else if (isVideoType(uri, context)) {
-                if (uri.getScheme().contains("content")) {
-                    appSpecificUrl = getAppSpecificStorageUri(uri, context);
+                try {
+                    if (uri.getScheme().contains("content")) {
+                        appSpecificUrl = getAppSpecificStorageUri(uri, context);
+                    }
+                    assets.pushMap(getVideoResponseMap(uri, appSpecificUrl, options, context));
+                } catch (Exception e) {
+                    Log.w("RNIP", "Skipping video due to metadata error: " + e.getMessage());
                 }
-                assets.pushMap(getVideoResponseMap(uri, appSpecificUrl, options, context));
             } else {
                 throw new RuntimeException("Unsupported file type");
             }
