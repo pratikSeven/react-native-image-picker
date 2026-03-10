@@ -602,9 +602,6 @@ public class Utils {
                 assets.pushMap(getImageResponseMap(uri, appSpecificUrl, options, context));
             } else if (isVideoType(uri, context)) {
                 try {
-                    if (uri.getScheme().contains("content")) {
-                        appSpecificUrl = getAppSpecificStorageUri(uri, context);
-                    }
                     assets.pushMap(getVideoResponseMap(uri, appSpecificUrl, options, context));
                 } catch (Exception e) {
                     Log.w("RNIP", "Skipping video due to metadata error: " + e.getMessage());
