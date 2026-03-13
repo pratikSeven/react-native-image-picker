@@ -112,33 +112,6 @@ public class Utils {
         }
     }
 
-    // Make a copy of shared storage files inside app specific storage so that users can access it later.
-    public static Uri getAppSpecificStorageUri(Uri sharedStorageUri, Context context) {
-        if (sharedStorageUri == null) {
-            return null;
-        }
-        ContentResolver contentResolver = context.getContentResolver();
-        String fileType = getFileTypeFromMime(contentResolver.getType(sharedStorageUri));
-
-        if (fileType == null) {
-            Cursor cursor =
-                    contentResolver.query(sharedStorageUri, null, null, null, null);
-            if (cursor.moveToFirst()) {
-                int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                String fileName = cursor.getString(nameIndex);
-                int lastDotIndex = fileName.lastIndexOf('.');
-
-                if (lastDotIndex != -1) {
-                    fileType = fileName.substring(lastDotIndex + 1);
-                }
-            }
-        }
-
-        Uri toUri = Uri.fromFile(createFile(context, fileType));
-        copyUri(sharedStorageUri, toUri, contentResolver);
-        return toUri;
-    }
-
     public static boolean isCameraAvailable(Context reactContext) {
         return reactContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA)
                 || reactContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY);
@@ -449,15 +422,11 @@ public class Utils {
     }
 
     static String getOriginalFilePath(Uri uri, Context context) {
-        String originPath;
         if (uri.getScheme().contains("content")) {
-            originPath = getFilePathFromContent(uri, context);
-            uri = getAppSpecificStorageUri(uri, context);
-        } else {
-            originPath = uri.toString();
+            String path = getFilePathFromContent(uri, context);
+            return path != null ? path : uri.toString();
         }
-
-        return originPath;
+        return uri.toString();
     }
 
     private static String getFilePathFromContent(Uri uri, Context context) {
@@ -591,21 +560,12 @@ public class Utils {
         for (int i = 0; i < fileUris.size(); ++i) {
             Uri uri = fileUris.get(i);
 
-            Uri appSpecificUrl = uri;
-            if (uri.getScheme().contains("content")) {
-                appSpecificUrl = getAppSpecificStorageUri(uri, context);
-            }
-
-            // Call getAppSpecificStorageUri in the if block to avoid copying unsupported files
             if (isImageType(uri, context)) {
-                appSpecificUrl = resizeOrConvertImage(appSpecificUrl, context, options);
-                assets.pushMap(getImageResponseMap(uri, appSpecificUrl, options, context));
+                Uri resultUri = resizeOrConvertImage(uri, context, options);
+                assets.pushMap(getImageResponseMap(uri, resultUri, options, context));
             } else if (isVideoType(uri, context)) {
                 try {
-                    if (uri.getScheme().contains("content")) {
-                        appSpecificUrl = getAppSpecificStorageUri(uri, context);
-                    }
-                    assets.pushMap(getVideoResponseMap(uri, appSpecificUrl, options, context));
+                    assets.pushMap(getVideoResponseMap(uri, uri, options, context));
                 } catch (Exception e) {
                     Log.w("RNIP", "Skipping video due to metadata error: " + e.getMessage());
                 }
